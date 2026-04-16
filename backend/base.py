@@ -292,29 +292,21 @@ def get_user_by_calendar_token(db: Session, token: str) -> User | None:
 
 
 def list_events_for_calendar(db: Session, user_id: int) -> list[Event]:
-    owned = list_events_by_owner(db, owner_id=user_id)
-    invitations = list_events_user_is_invited_to(db, user_id=user_id)
-
-    events: list[Event] = []
-    seen_ids: set[int] = set()
-
-    # Eventos creados
-    for ev in owned:
-        if ev.id not in seen_ids:
-            events.append(ev)
-            seen_ids.add(ev.id)
-
-    # Invitaciones aceptadas
-    for inv in invitations:
-        if inv.status != "accepted":
-            continue
-        ev = db.query(Event).filter(Event.id == inv.event_id).first()
-        if not ev:
-            continue
-        if ev.id not in seen_ids:
-            events.append(ev)
-            seen_ids.add(ev.id)
-
+    events = (
+        db.query(Event)
+        .outerjoin(EventInvitation, Event.id == EventInvitation.event_id)
+        .filter(
+            or_(
+                Event.owner_id == user_id,
+                and_(
+                    EventInvitation.user_id == user_id,
+                    EventInvitation.status == "accepted"
+                )
+            )
+        )
+        .distinct()
+        .all()
+    )
     return events
 
 # -----------------------------------------------------------------------
@@ -435,36 +427,22 @@ def search_user_contacts_by_query(db: Session, user_id: int, query: str) -> list
 
 
 def search_user_teams_by_query(db: Session, user_id: int, query: str) -> list[Team]:
-    if not query:
-        return []
-
+    if not query: return []
     q_like = f"%{query.lower()}%"
 
-    owned = (
+    return (
         db.query(Team)
+        .outerjoin(TeamMember, Team.id == TeamMember.team_id)
         .filter(
-            Team.owner_id == user_id,
             Team.name.ilike(q_like),
+            or_(
+                Team.owner_id == user_id,
+                and_(TeamMember.user_id == user_id, TeamMember.status == "accepted")
+            )
         )
+        .distinct()
         .all()
     )
-
-    member_of = (
-        db.query(Team)
-        .join(TeamMember, TeamMember.team_id == Team.id)
-        .filter(
-            TeamMember.user_id == user_id,
-            TeamMember.status == "accepted",
-            Team.name.ilike(q_like),
-        )
-        .all()
-    )
-
-    merged: dict[int, Team] = {}
-    for t in owned + member_of:
-        merged[t.id] = t
-
-    return list(merged.values())
 
 
 def invite_team_and_members_to_event(db: Session, event_id: int, team_id: int):
@@ -916,42 +894,31 @@ def list_teams_invited_to_event(db: Session, event_id: int):
         EventInvitesTeam.event_id == event_id
     ).all()
 
-def auto_invite_team_members(
-    db: Session,
-    event_id: int,
-    team_id: int,
-) -> List[EventInvitation]:
-    event = get_event_by_id(db, event_id)
-    if event is None:
-        raise ValueError("Event not found")
+def auto_invite_team_members(db: Session, event_id: int, team_id: int) -> List[EventInvitation]:
+    existing_invitee_ids = {
+        row[0] for row in db.query(EventInvitation.user_id)
+        .filter(EventInvitation.event_id == event_id).all()
+    }
 
-    members = (
-        db.query(TeamMember)
+    event = get_event_by_id(db, event_id)
+    members_to_invite = (
+        db.query(TeamMember.user_id)
         .filter(
             TeamMember.team_id == team_id,
             TeamMember.status == "accepted",
-        )
-        .all()
+            TeamMember.user_id != event.owner_id,
+            TeamMember.user_id.notin_(existing_invitee_ids)
+        ).all()
     )
 
-    created: list[EventInvitation] = []
-
-    for m in members:
-        if m.user_id == event.owner_id:
-            continue
-
-        try:
-            inv = invite_user_to_event(
-                db=db,
-                event_id=event_id,
-                user_id=m.user_id,
-            )
-        except ValueError:
-            continue
-
-        created.append(inv)
-
-    return created
+    new_invitations = [
+        EventInvitation(event_id=event_id, user_id=m.user_id, status="pending")
+        for m in members_to_invite
+    ]
+    
+    db.add_all(new_invitations)
+    db.flush()
+    return new_invitations
 
 # -----------------------------------------------------------------------
 # CONTACT FUNCTIONS
@@ -1072,494 +1039,226 @@ RSVP_TO_STATUS = {
     "rejected": "rejected",
 }
 
+# -----------------------------------------------------------------------
+# DEMO SEED DATA (Abril 2026 - 2028)
+# -----------------------------------------------------------------------
+
 initial_events = [
+    # --- 2026 ---
     {
-        "title": "Reunión de kickoff Q4",
-        "date": "2025-10-14",
-        "time": "09:30",
-        "location": "Sala 1A",
-        "description": "Definición de objetivos y responsabilidades del nuevo trimestre. Se revisarán métricas del Q3.",
-        "invitees": [
-            {"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Sofía", "email": "sofia@ejemplo.com", "rsvp": "pending"},
-            {"name": "Carlos", "email": "carlos@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Valeria", "email": "valeria@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Tomás", "email": "tomas@ejemplo.com", "rsvp": "pending"},
-            {"name": "Lucía", "email": "lucia@ejemplo.com", "rsvp": "confirmed"},
-        ],
+        "title": "Lanzamiento Proyecto EventEase",
+        "date": "2026-04-20",
+        "time": "10:00",
+        "location": "Auditorio Principal",
+        "description": "Presentación oficial de la plataforma a la facultad.",
+        "invitees": [{"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "confirmed"}, {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "confirmed"}]
     },
     {
-        "title": "Observación astronómica",
-        "date": "2025-10-18",
-        "time": "20:30",
-        "location": "Mirador Cerro Alto",
-        "description": "Noche despejada, se llevará telescopio y cámara. Revisaremos constelaciones visibles y exposición larga.",
-        "invitees": [
-            {"name": "Héctor", "email": "hector@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "María", "email": "maria@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Esteban", "email": "esteban@ejemplo.com", "rsvp": "pending"},
-            {"name": "Camila", "email": "camila@ejemplo.com", "rsvp": "pending"},
-            {"name": "Andrea", "email": "andrea@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Pablo", "email": "pablo@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Rosa", "email": "rosa@ejemplo.com", "rsvp": "pending"},
-        ],
+        "title": "Examen Final de Redes",
+        "date": "2026-05-15",
+        "time": "08:00",
+        "location": "Laboratorio 4",
+        "description": "Evaluación teórica y práctica sobre protocolos de capa de transporte.",
+        "invitees": [{"name": "Carlos", "email": "carlos@ejemplo.com", "rsvp": "pending"}]
     },
     {
-        "title": "Entrega final de proyecto de Sistemas",
-        "date": "2025-10-20",
-        "time": "11:59",
-        "location": "Campus Virtual",
-        "description": "Subir PDF y repositorio antes del mediodía. Asegurarse de incluir README y pruebas unitarias.",
-        "invitees": [
-            {"name": "Laura", "email": "laura@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Ricardo", "email": "ricardo@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Juan", "email": "juan@ejemplo.com", "rsvp": "pending"},
-            {"name": "Sara", "email": "sara@ejemplo.com", "rsvp": "pending"},
-            {"name": "Elena", "email": "elena@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Mateo", "email": "mateo@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Diana", "email": "diana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Hugo", "email": "hugo@ejemplo.com", "rsvp": "pending"},
-        ],
+        "title": "Fiesta de Fin de Semestre",
+        "date": "2026-06-12",
+        "time": "21:00",
+        "location": "Terraza Club",
+        "description": "Celebración tras terminar el 8vo semestre. ¡No faltes!",
+        "invitees": [{"name": "Valeria", "email": "valeria@ejemplo.com", "rsvp": "confirmed"}, {"name": "Sofía", "email": "sofia@ejemplo.com", "rsvp": "confirmed"}]
     },
     {
-        "title": "Cumpleaños de Valeria",
-        "date": "2025-10-20",
-        "time": "19:30",
-        "location": "Casa de Valeria",
-        "description": "Fiesta temática de los 2000s. Habrá karaoke, comida y bebidas. Se permite traer un invitado.",
-        "invitees": [
-            {"name": "Valeria", "email": "val@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Pablo", "email": "pablo@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Marina", "email": "marina@ejemplo.com", "rsvp": "pending"},
-            {"name": "Héctor", "email": "hector@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Lucía", "email": "lucia@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Santiago", "email": "santiago@ejemplo.com", "rsvp": "pending"},
-            {"name": "David", "email": "david@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Paola", "email": "paola@ejemplo.com", "rsvp": "confirmed"},
-        ],
+        "title": "Curso de Verano: Rust Intermedio",
+        "date": "2026-07-05",
+        "time": "09:00",
+        "location": "Online - Zoom",
+        "description": "Profundizando en Lifetimes y Macros.",
+        "invitees": [{"name": "Mateo", "email": "mateo@ejemplo.com", "rsvp": "confirmed"}]
     },
     {
-        "title": "Workshop: Rust y concurrencia",
-        "date": "2025-10-23",
-        "time": "16:00",
-        "location": "Lab 3",
-        "description": "Exploraremos el modelo async/await, Tokio y patrones de sincronización. Nivel intermedio.",
-        "invitees": [
-            {"name": "Mario", "email": "mario@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Iván", "email": "ivan@ejemplo.com", "rsvp": "pending"},
-            {"name": "Laura", "email": "laura@ejemplo.com", "rsvp": "pending"},
-            {"name": "César", "email": "cesar@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Antonia", "email": "antonia@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Rafael", "email": "rafael@ejemplo.com", "rsvp": "confirmed"},
-        ],
-    },
-    {
-        "title": "Hacknight universitaria",
-        "date": "2025-11-01",
+        "title": "Hackathon Regional 2026",
+        "date": "2026-08-20",
         "time": "18:00",
-        "location": "Cowork — 2° piso",
-        "description": "Sesión nocturna con retos de IA, mini hackathon y pizza libre hasta medianoche.",
-        "invitees": [
-            {"name": "Alejandro", "email": "ale@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Elena", "email": "elena@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Miguel", "email": "miguel@ejemplo.com", "rsvp": "pending"},
-            {"name": "Sofía", "email": "sofia@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Camilo", "email": "camilo@ejemplo.com", "rsvp": "pending"},
-            {"name": "Tania", "email": "tania@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Andrés", "email": "andres@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Nicolás", "email": "nico@ejemplo.com", "rsvp": "confirmed"},
-        ],
+        "location": "Centro de Convenciones",
+        "description": "48 horas de código ininterrumpido.",
+        "invitees": [{"name": "Ricardo", "email": "ricardo@ejemplo.com", "rsvp": "confirmed"}]
     },
     {
-        "title": "Retrospectiva sprint 42",
-        "date": "2025-11-15",
+        "title": "Inicio de Prácticas Profesionales",
+        "date": "2026-09-01",
+        "time": "08:30",
+        "location": "Tech Solutions HQ",
+        "description": "Inducción al equipo de desarrollo backend.",
+        "invitees": [{"name": "Diana", "email": "diana@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Conferencia DevDays",
+        "date": "2026-10-15",
         "time": "14:00",
-        "location": "Sala 2B",
-        "description": "Revisión de métricas, tiempos de entrega y sugerencias del equipo.",
-        "invitees": [
-            {"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "pending"},
-            {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Sofía", "email": "sofia@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Valeria", "email": "valeria@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Carlos", "email": "carlos@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Martín", "email": "martin@ejemplo.com", "rsvp": "confirmed"},
-        ],
+        "location": "Teatro Municipal",
+        "description": "Charlas sobre microservicios y arquitectura limpia.",
+        "invitees": [{"name": "Hugo", "email": "hugo@ejemplo.com", "rsvp": "pending"}]
     },
     {
-        "title": "Retro del sprint 41",
-        "date": "2025-09-25",
+        "title": "Planificación de Tesis",
+        "date": "2026-11-10",
+        "time": "16:00",
+        "location": "Biblioteca Central",
+        "description": "Primera reunión con el tutor para definir el alcance.",
+        "invitees": [{"name": "Laura", "email": "laura@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Cena de Navidad IT",
+        "date": "2026-12-20",
+        "time": "20:30",
+        "location": "Restaurante El Faro",
+        "description": "Cierre de año con los colegas de la oficina.",
+        "invitees": [{"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    # --- 2027 ---
+    {
+        "title": "Entrega de Primer Avance Tesis",
+        "date": "2027-01-25",
+        "time": "23:59",
+        "location": "Plataforma Académica",
+        "description": "Capítulos 1 y 2 terminados.",
+        "invitees": [{"name": "Profesor Ríos", "email": "rios@ejemplo.com", "rsvp": "pending"}]
+    },
+    {
+        "title": "Carnavales / Descanso",
+        "date": "2027-02-15",
+        "time": "10:00",
+        "location": "Costa Azul",
+        "description": "Desconexión total antes del semestre final.",
+        "invitees": [{"name": "Andrés", "email": "andres@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Workshop: Kubernetes en Producción",
+        "date": "2027-03-22",
         "time": "15:00",
-        "location": "Sala 2B",
-        "description": "Revisión de aprendizajes y mejoras para próximos ciclos de desarrollo.",
-        "invitees": [
-            {"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "pending"},
-            {"name": "Pedro", "email": "pedro@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Diana", "email": "diana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Gabriel", "email": "gabriel@ejemplo.com", "rsvp": "rejected"},
-        ],
+        "location": "Lab de Innovación",
+        "description": "Despliegue de clusters escalables.",
+        "invitees": [{"name": "Miguel", "email": "miguel@ejemplo.com", "rsvp": "confirmed"}]
     },
     {
-        "title": "Cena aniversario de la facultad",
-        "date": "2025-10-05",
-        "time": "20:00",
-        "location": "Club Social Universitario",
-        "description": "Cena formal de gala con profesores y egresados. Dress code: formal.",
-        "invitees": [
-            {"name": "Mónica", "email": "monica@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Camila", "email": "camila@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Jorge", "email": "jorge@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Sebastián", "email": "sebastian@ejemplo.com", "rsvp": "pending"},
-            {"name": "Liliana", "email": "liliana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Oscar", "email": "oscar@ejemplo.com", "rsvp": "pending"},
-        ],
+        "title": "Simposio de Ciberseguridad",
+        "date": "2027-04-12",
+        "time": "09:00",
+        "location": "Hotel Plaza",
+        "description": "Nuevas amenazas en sistemas embebidos.",
+        "invitees": [{"name": "Lucía", "email": "lucia@ejemplo.com", "rsvp": "pending"}]
     },
+    {
+        "title": "Sustentación de Tesis",
+        "date": "2027-05-30",
+        "time": "11:00",
+        "location": "Sala de Grados",
+        "description": "Presentación final frente al jurado. ¡Día clave!",
+        "invitees": [{"name": "Familia", "email": "familia@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Ceremonia de Graduación",
+        "date": "2027-06-25",
+        "time": "18:00",
+        "location": "Coliseo Universitario",
+        "description": "Entrega de diplomas de Ingeniero de Sistemas.",
+        "invitees": [{"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "confirmed"}, {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Viaje de Graduados",
+        "date": "2027-07-10",
+        "time": "06:00",
+        "location": "Aeropuerto Int.",
+        "description": "Destino: Europa. 20 días recorriendo capitales.",
+        "invitees": [{"name": "Pablo", "email": "pablo@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Inicio Master en IA",
+        "date": "2027-08-15",
+        "time": "19:00",
+        "location": "Campus Virtual",
+        "description": "Primeras clases de Machine Learning avanzado.",
+        "invitees": [{"name": "Mónica", "email": "monica@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Lanzamiento de Startup Personal",
+        "date": "2027-09-12",
+        "time": "12:00",
+        "location": "Coworking Space",
+        "description": "Presentación del MVP a inversionistas.",
+        "invitees": [{"name": "Julián", "email": "julian@ejemplo.com", "rsvp": "pending"}]
+    },
+    {
+        "title": "Cumpleaños Demo 2027",
+        "date": "2027-10-18",
+        "time": "20:00",
+        "location": "Casa",
+        "description": "Celebración íntima con amigos cercanos.",
+        "invitees": [{"name": "Tania", "email": "tania@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "DevFest 2027",
+        "date": "2027-11-05",
+        "time": "09:00",
+        "location": "Arena Digital",
+        "description": "El evento más grande de tecnología del año.",
+        "invitees": [{"name": "Elena", "email": "elena@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    {
+        "title": "Retiro de Fin de Año",
+        "date": "2027-12-15",
+        "time": "08:00",
+        "location": "Cabañas de la Montaña",
+        "description": "Reflexión sobre el año y metas para 2028.",
+        "invitees": [{"name": "Santiago", "email": "santiago@ejemplo.com", "rsvp": "confirmed"}]
+    },
+    # --- 2028 ---
+    {
+        "title": "Primer Aniversario de Startup",
+        "date": "2028-09-12",
+        "time": "19:00",
+        "location": "Restaurante Vista",
+        "description": "Celebrando un año de operaciones y éxito.",
+        "invitees": [{"name": "Todo el equipo", "email": "team@startup.com", "rsvp": "pending"}]
+    }
 ]
 
 initial_invites = [
     {
-        "title": "Revisión paper de IA",
-        "date": "2025-09-20",
+        "title": "Boda de Ana y Luis",
+        "date": "2026-08-28",
         "time": "17:00",
-        "location": "Biblioteca — Sala 4",
-        "host": "Carolina",
-        "rsvp": "confirmed",
-    },
-    {
-        "title": "Charla sobre observatorios amateurs",
-        "date": "2025-10-08",
-        "time": "18:30",
-        "location": "Observatorio Municipal",
-        "host": "Julián",
-        "rsvp": "rejected",
-    },
-    {
-        "title": "Asado del viernes",
-        "date": "2025-10-11",
-        "time": "19:00",
-        "location": "Patio de Andrés",
-        "host": "Andrés",
-        "rsvp": "pending",
-    },
-    {
-        "title": "Meetup Linux & Homelab",
-        "date": "2025-10-25",
-        "time": "15:30",
-        "location": "Makerspace U.",
-        "host": "Comunidad LUG",
-        "rsvp": "confirmed",
-    },
-    {
-        "title": "Workshop Docker avanzado",
-        "date": "2025-10-26",
-        "time": "10:00",
-        "location": "Aula Magna",
-        "host": "Paula",
-        "rsvp": "pending",
-    },
-    {
-        "title": "Concierto Oasis Tribute",
-        "date": "2025-10-31",
-        "time": "21:00",
-        "location": "Teatro Central",
-        "host": "Mateo",
-        "rsvp": "confirmed",
-    },
-    {
-        "title": "Fotografía nocturna urbana",
-        "date": "2025-11-02",
-        "time": "19:00",
-        "location": "Puente del Río",
-        "host": "Lucía",
-        "rsvp": "pending",
-    },
-    {
-        "title": "Reunión de cátedra",
-        "date": "2025-09-30",
-        "time": "11:00",
-        "location": "Sala Zoom A",
-        "host": "Profesor Ríos",
-        "rsvp": "rejected",
-    },
-    {
-        "title": "Café con el equipo",
-        "date": "2025-10-19",
-        "time": "09:00",
-        "location": "Café Origen",
+        "location": "Catedral Metropolitana",
         "host": "Ana",
         "rsvp": "pending",
     },
     {
-        "title": "Taller: Testing en Rust",
-        "date": "2025-11-09",
-        "time": "16:30",
-        "location": "Lab 2",
-        "host": "Diego",
-        "rsvp": "confirmed",
-    },
-]
-
-
-def get_or_create_user(db: Session, name: str, email: str, password: str = "demo1234") -> User:
-    user = db.query(User).filter(User.email == email).first()
-    if user:
-        return user
-    return create_user(db, name=name, email=email, password=password)
-
-# -----------------------------------------------------------------------
-# DEMO SEED DATA
-# -----------------------------------------------------------------------
-
-RSVP_TO_STATUS = {
-    "pending": "pending",
-    "confirmed": "accepted",
-    "rejected": "rejected",
-}
-
-initial_events = [
-    {
-        "title": "Reunión de kickoff Q4",
-        # pasado
-        "date": "2025-10-14",
-        "time": "09:30",
-        "location": "Sala 1A",
-        "description": "Definición de objetivos y responsabilidades del nuevo trimestre. Se revisarán métricas del Q3.",
-        "invitees": [
-            {"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Sofía", "email": "sofia@ejemplo.com", "rsvp": "pending"},
-            {"name": "Carlos", "email": "carlos@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Valeria", "email": "valeria@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Tomás", "email": "tomas@ejemplo.com", "rsvp": "pending"},
-            {"name": "Lucía", "email": "lucia@ejemplo.com", "rsvp": "confirmed"},
-        ],
-    },
-    {
-        "title": "Observación astronómica",
-        # FUTURO
-        "date": "2025-12-05",
-        "time": "20:30",
-        "location": "Mirador Cerro Alto",
-        "description": "Noche despejada, se llevará telescopio y cámara. Revisaremos constelaciones visibles y exposición larga.",
-        "invitees": [
-            {"name": "Héctor", "email": "hector@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "María", "email": "maria@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Esteban", "email": "esteban@ejemplo.com", "rsvp": "pending"},
-            {"name": "Camila", "email": "camila@ejemplo.com", "rsvp": "pending"},
-            {"name": "Andrea", "email": "andrea@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Pablo", "email": "pablo@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Rosa", "email": "rosa@ejemplo.com", "rsvp": "pending"},
-        ],
-    },
-    {
-        "title": "Entrega final de proyecto de Sistemas",
-        # pasado reciente
-        "date": "2025-11-10",
-        "time": "11:59",
-        "location": "Campus Virtual",
-        "description": "Subir PDF y repositorio antes del mediodía. Asegurarse de incluir README y pruebas unitarias.",
-        "invitees": [
-            {"name": "Laura", "email": "laura@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Ricardo", "email": "ricardo@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Juan", "email": "juan@ejemplo.com", "rsvp": "pending"},
-            {"name": "Sara", "email": "sara@ejemplo.com", "rsvp": "pending"},
-            {"name": "Elena", "email": "elena@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Mateo", "email": "mateo@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Diana", "email": "diana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Hugo", "email": "hugo@ejemplo.com", "rsvp": "pending"},
-        ],
-    },
-    {
-        "title": "Cumpleaños de Valeria",
-        # ayer aprox (si estás el 19)
-        "date": "2025-11-18",
-        "time": "19:30",
-        "location": "Casa de Valeria",
-        "description": "Fiesta temática de los 2000s. Habrá karaoke, comida y bebidas. Se permite traer un invitado.",
-        "invitees": [
-            {"name": "Valeria", "email": "val@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Pablo", "email": "pablo@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Marina", "email": "marina@ejemplo.com", "rsvp": "pending"},
-            {"name": "Héctor", "email": "hector@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Lucía", "email": "lucia@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Santiago", "email": "santiago@ejemplo.com", "rsvp": "pending"},
-            {"name": "David", "email": "david@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Paola", "email": "paola@ejemplo.com", "rsvp": "confirmed"},
-        ],
-    },
-    {
-        "title": "Workshop: Rust y concurrencia",
-        # FUTURO
-        "date": "2025-12-10",
-        "time": "16:00",
-        "location": "Lab 3",
-        "description": "Exploraremos el modelo async/await, Tokio y patrones de sincronización. Nivel intermedio.",
-        "invitees": [
-            {"name": "Mario", "email": "mario@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Iván", "email": "ivan@ejemplo.com", "rsvp": "pending"},
-            {"name": "Laura", "email": "laura@ejemplo.com", "rsvp": "pending"},
-            {"name": "César", "email": "cesar@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Antonia", "email": "antonia@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Rafael", "email": "rafael@ejemplo.com", "rsvp": "confirmed"},
-        ],
-    },
-    {
-        "title": "Hacknight universitaria",
-        # FUTURO
-        "date": "2025-12-20",
-        "time": "18:00",
-        "location": "Cowork — 2° piso",
-        "description": "Sesión nocturna con retos de IA, mini hackathon y pizza libre hasta medianoche.",
-        "invitees": [
-            {"name": "Alejandro", "email": "ale@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Elena", "email": "elena@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Miguel", "email": "miguel@ejemplo.com", "rsvp": "pending"},
-            {"name": "Sofía", "email": "sofia@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Camilo", "email": "camilo@ejemplo.com", "rsvp": "pending"},
-            {"name": "Tania", "email": "tania@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Andrés", "email": "andres@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Nicolás", "email": "nico@ejemplo.com", "rsvp": "confirmed"},
-        ],
-    },
-    {
-        "title": "Retrospectiva sprint 42",
-        # FUTURO (ya 2026)
-        "date": "2026-01-07",
-        "time": "14:00",
-        "location": "Sala 2B",
-        "description": "Revisión de métricas, tiempos de entrega y sugerencias del equipo.",
-        "invitees": [
-            {"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "pending"},
-            {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Sofía", "email": "sofia@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Valeria", "email": "valeria@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Carlos", "email": "carlos@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Martín", "email": "martin@ejemplo.com", "rsvp": "confirmed"},
-        ],
-    },
-    {
-        "title": "Retro del sprint 41",
-        # pasado
-        "date": "2025-09-25",
-        "time": "15:00",
-        "location": "Sala 2B",
-        "description": "Revisión de aprendizajes y mejoras para próximos ciclos de desarrollo.",
-        "invitees": [
-            {"name": "Ana", "email": "ana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Luis", "email": "luis@ejemplo.com", "rsvp": "pending"},
-            {"name": "Pedro", "email": "pedro@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Diana", "email": "diana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Gabriel", "email": "gabriel@ejemplo.com", "rsvp": "rejected"},
-        ],
-    },
-    {
-        "title": "Cena aniversario de la facultad",
-        # pasado
-        "date": "2025-10-05",
-        "time": "20:00",
-        "location": "Club Social Universitario",
-        "description": "Cena formal de gala con profesores y egresados. Dress code: formal.",
-        "invitees": [
-            {"name": "Mónica", "email": "monica@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Camila", "email": "camila@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Jorge", "email": "jorge@ejemplo.com", "rsvp": "rejected"},
-            {"name": "Sebastián", "email": "sebastian@ejemplo.com", "rsvp": "pending"},
-            {"name": "Liliana", "email": "liliana@ejemplo.com", "rsvp": "confirmed"},
-            {"name": "Oscar", "email": "oscar@ejemplo.com", "rsvp": "pending"},
-        ],
-    },
-]
-
-initial_invites = [
-    {
-        "title": "Revisión paper de IA",
-        "date": "2025-09-20",
-        "time": "17:00",
-        "location": "Biblioteca — Sala 4",
-        "host": "Carolina",
-        "rsvp": "confirmed",
-    },
-    {
-        "title": "Charla sobre observatorios amateurs",
-        "date": "2025-10-08",
-        "time": "18:30",
-        "location": "Observatorio Municipal",
-        "host": "Julián",
-        "rsvp": "rejected",
-    },
-    {
-        "title": "Asado del viernes",
-        "date": "2025-10-11",
+        "title": "Reunión de Ex-alumnos 8vo Sem",
+        "date": "2027-04-15",
         "time": "19:00",
-        "location": "Patio de Andrés",
-        "host": "Andrés",
-        "rsvp": "pending",
-    },
-    {
-        "title": "Meetup Linux & Homelab",
-        # FUTURO cercano
-        "date": "2025-11-25",
-        "time": "15:30",
-        "location": "Makerspace U.",
-        "host": "Comunidad LUG",
+        "location": "Bar El Recuerdo",
+        "host": "Carlos",
         "rsvp": "confirmed",
     },
     {
-        "title": "Workshop Docker avanzado",
-        # FUTURO
-        "date": "2025-12-08",
-        "time": "10:00",
-        "location": "Aula Magna",
-        "host": "Paula",
-        "rsvp": "pending",
+        "title": "Lanzamiento Nuevo Producto Apple",
+        "date": "2027-09-10",
+        "time": "12:00",
+        "location": "Online - Watch Party",
+        "host": "Tech Community",
+        "rsvp": "confirmed",
     },
     {
-        "title": "Concierto Oasis Tribute",
-        # FUTURO
-        "date": "2025-12-31",
+        "title": "Cena de Gala de Egresados",
+        "date": "2028-06-20",
         "time": "21:00",
-        "location": "Teatro Central",
-        "host": "Mateo",
-        "rsvp": "confirmed",
-    },
-    {
-        "title": "Fotografía nocturna urbana",
-        # FUTURO
-        "date": "2025-12-01",
-        "time": "19:00",
-        "location": "Puente del Río",
-        "host": "Lucía",
+        "location": "Grand Hotel",
+        "host": "Asociación Alumni",
         "rsvp": "pending",
-    },
-    {
-        "title": "Reunión de cátedra",
-        "date": "2025-09-30",
-        "time": "11:00",
-        "location": "Sala Zoom A",
-        "host": "Profesor Ríos",
-        "rsvp": "rejected",
-    },
-    {
-        "title": "Café con el equipo",
-        # FUTURO muy cercano
-        "date": "2025-11-22",
-        "time": "09:00",
-        "location": "Café Origen",
-        "host": "Ana",
-        "rsvp": "pending",
-    },
-    {
-        "title": "Taller: Testing en Rust",
-        # FUTURO (2026)
-        "date": "2026-01-15",
-        "time": "16:30",
-        "location": "Lab 2",
-        "host": "Diego",
-        "rsvp": "confirmed",
-    },
+    }
 ]
-
 
 def get_or_create_user(db: Session, name: str, email: str, password: str = "demo1234") -> User:
     user = db.query(User).filter(User.email == email).first()
