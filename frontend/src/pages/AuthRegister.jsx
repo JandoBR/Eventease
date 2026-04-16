@@ -57,7 +57,6 @@ export default function AuthRegister() {
                 return;
             }
 
-            // No logueamos automáticamente, lo mandamos al login
             navigate(`/auth/login?redirect=${encodeURIComponent(from)}`, {
                 replace: true,
             });
@@ -91,7 +90,7 @@ export default function AuthRegister() {
                     padding: 24,
                     borderRadius: 20,
                     boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
-                    maxWidth: 480, // matches your previous layout
+                    maxWidth: 480, 
                 }}
             >
                 <h1 style={{ marginBottom: 12 }}>EventEase — Registro</h1>

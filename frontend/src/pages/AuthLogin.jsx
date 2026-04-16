@@ -20,7 +20,6 @@ export default function AuthLogin() {
         e.preventDefault();
         setError("");
 
-        // validaciones básicas de UI
         if (!email.trim() || !password.trim()) {
             setError("Por favor completa todos los campos.");
             return;
@@ -35,7 +34,7 @@ export default function AuthLogin() {
             const res = await fetch(`${API_BASE}/auth/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                credentials: "include", // ⬅️ importante para cookie de sesión
+                credentials: "include", 
                 body: JSON.stringify({ email, password }),
             });
 
@@ -45,7 +44,6 @@ export default function AuthLogin() {
                     const data = await res.json();
                     if (data?.detail) msg = data.detail;
                 } catch {
-                    // ignore
                 }
                 setError(msg);
                 return;
@@ -54,7 +52,6 @@ export default function AuthLogin() {
             const user = await res.json();
             console.log("Usuario autenticado:", user);
 
-            // solo flag de UI, la auth real es la cookie
             setAuth("session");
 
             navigate(back, { replace: true });
@@ -63,11 +60,6 @@ export default function AuthLogin() {
             setError("No se pudo conectar con el servidor.");
         }
     }
-
-    //if (isAuthed()) {
-    //    navigate("/", { replace: true });
-    //    return null;
-    //}
 
     return (
         <div

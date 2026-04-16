@@ -1,18 +1,14 @@
 import { useEffect, useRef, useMemo, useState } from "react";
 
-// 🔧 helper común
 const pad = (n) => String(n).padStart(2, "0");
 
-// normaliza date a "YYYY-MM-DD" o devuelve null
 function normalizeDateToISO(date) {
     if (!date) return null;
 
-    // ya viene como string "YYYY-MM-DD"
     if (typeof date === "string") {
         const m = date.match(/^\d{4}-\d{2}-\d{2}/);
         if (m) return m[0];
 
-        // intenta parsear cualquier otra string válida
         const d = new Date(date);
         if (!isNaN(d.getTime())) {
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -20,7 +16,6 @@ function normalizeDateToISO(date) {
         return null;
     }
 
-    // viene como objeto Date
     if (date instanceof Date && !isNaN(date.getTime())) {
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
@@ -28,12 +23,11 @@ function normalizeDateToISO(date) {
     return null;
 }
 
-// normaliza hora a "HH:MM" (acepta "HH:MM", "HH:MM:SS" o Date)
 function normalizeTimeToHHMM(t, fallback = "00:00") {
     if (!t) return fallback;
 
     if (typeof t === "string") {
-        const m = t.match(/^\d{2}:\d{2}/); // agarra HH:MM de "HH:MM" o "HH:MM:SS"
+        const m = t.match(/^\d{2}:\d{2}/); 
         if (m) return m[0];
         return fallback;
     }
@@ -45,11 +39,9 @@ function normalizeTimeToHHMM(t, fallback = "00:00") {
     return fallback;
 }
 
-// 🔹 Calcula fecha/hora de fin a partir de inicio y endtime opcional
 function computeEnd(date, time, endtime) {
     const dateIso = normalizeDateToISO(date);
     if (!dateIso) {
-        // no podemos construir nada coherente
         return { endDate: null, endTime: null };
     }
 
@@ -57,7 +49,6 @@ function computeEnd(date, time, endtime) {
 
     const start = new Date(`${dateIso}T${startStr}:00`);
     if (isNaN(start.getTime())) {
-        // mejor no seguir propagando NaN
         return { endDate: null, endTime: null };
     }
 
@@ -74,7 +65,6 @@ function computeEnd(date, time, endtime) {
             end = new Date(start.getTime() + 60 * 60 * 1000);
         }
     } else {
-        // ⬅️ si no hay hora de fin: default +1h
         end = new Date(start.getTime() + 60 * 60 * 1000);
     }
 
@@ -88,7 +78,6 @@ function computeEnd(date, time, endtime) {
     return { endDate: endDateIso, endTime: endTimeStr };
 }
 
-// ahora usamos la hora de fin (real o +1h) para considerar si ya pasó
 function isPast(date, time, endtime) {
     try {
         const { endDate, endTime } = computeEnd(date, time, endtime);
@@ -116,7 +105,6 @@ function SectionTitle({ children }) {
     );
 }
 
-/* 🌙 Modal reutilizable */
 function ConfirmModal({ open, onClose, onConfirm, title, message }) {
     if (!open) return null;
     return (
@@ -157,7 +145,6 @@ export default function Invitations({ invites = [], onRsvp, onDeleteInvite, high
     const [showPast, setShowPast] = useState(false);
     const [confirmData, setConfirmData] = useState(null);
 
-    // auto-focus/aria para el destacado
     const justHighlighted = useRef(null);
     useEffect(() => {
         if (!highlightId) return;
@@ -168,7 +155,6 @@ export default function Invitations({ invites = [], onRsvp, onDeleteInvite, high
         }
     }, [highlightId]);
 
-    // dividir en próximas/pasadas usando la hora de fin (real o +1h)
     const { upcoming, past } = useMemo(() => {
         const up = [], pa = [];
         for (const inv of invites) {
@@ -177,7 +163,6 @@ export default function Invitations({ invites = [], onRsvp, onDeleteInvite, high
         return { upcoming: up, past: pa };
     }, [invites]);
 
-    // 🔤 helper de truncado en 1 línea con “aire” (corta antes del borde)
     const oneLineCut = (expanded = false) => ({
         whiteSpace: expanded ? "normal" : "nowrap",
         overflow: "hidden",

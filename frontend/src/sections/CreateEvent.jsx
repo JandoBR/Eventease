@@ -124,7 +124,6 @@ export default function CreateEvent({ apiBase, showToast, onEventCreated }) {
 
         loadContacts();
         loadTeams();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // =========================================================

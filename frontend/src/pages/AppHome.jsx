@@ -25,7 +25,6 @@ function uid() {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-/* 🔗 Helper para construir la URL absoluta del invite */
 function buildInviteUrl(tokenOrPath) {
     const isToken = !tokenOrPath?.startsWith("/");
     const path = isToken ? `/invite/${tokenOrPath}` : tokenOrPath;
@@ -55,7 +54,6 @@ export default function AppHome() {
     const trackRef = useRef(null);
     const pos = useRef({ dragging: false, startX: 0, scrollX: 0 });
 
-    // refs para cada panel scrolleable
     const dashboardRef = useRef(null);
     const createRef = useRef(null);
     const myEventsRef = useRef(null);
@@ -64,7 +62,6 @@ export default function AppHome() {
     const teamsRef = useRef(null);
     const [showTop, setShowTop] = useState(false);
 
-    // 🔹 Enviar timezone del navegador al backend una vez por sesión
     useEffect(() => {
         try {
             const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -145,7 +142,6 @@ export default function AppHome() {
         }
     };
 
-    // Al montar
     useEffect(() => {
         fetchData();
     }, []);
@@ -186,7 +182,6 @@ export default function AppHome() {
             showToast("Enlace de invitación copiado");
         } catch (err) {
             console.error(err);
-            // eslint-disable-next-line no-alert
             prompt("Copia este enlace:", full);
             showToast("Enlace listo para copiar");
         }
@@ -226,7 +221,6 @@ export default function AppHome() {
                 showToast("Enlace de calendario copiado");
             } catch (err) {
                 console.error("Clipboard error:", err);
-                // eslint-disable-next-line no-alert
                 prompt("Copia este enlace de calendario:", url);
                 showToast("Enlace listo para copiar");
             }
@@ -300,7 +294,6 @@ export default function AppHome() {
         }
     }
 
-    // botón "Arriba" según tab activa
     useEffect(() => {
         const el =
             active === 0 ? dashboardRef.current :
@@ -335,7 +328,6 @@ export default function AppHome() {
         });
     }, [active]);
 
-    // drag lateral
     useEffect(() => {
         const el = trackRef.current;
         if (!el) return;
@@ -400,7 +392,6 @@ export default function AppHome() {
         window.location.href = "/auth/login";
     }
 
-    // Para el calendario: mezcla eventos propios + invitaciones (excluye rechazadas)
     const forCalendar = [
         ...sorted.map((e) => ({ ...e, source: "own" })),
         ...invitesSorted
@@ -408,7 +399,6 @@ export default function AppHome() {
             .map((i) => ({ ...i, source: "invited" })),
     ];
 
-    // Manejo de "incoming invite" (cuando llegas desde /invite/xxx)
     useEffect(() => {
         let done = false;
 
@@ -424,7 +414,6 @@ export default function AppHome() {
                 return exists ? prev : [...prev, invite];
             });
 
-            // pestaña de invitaciones ahora es índice 3
             setActive(3);
 
             setTimeout(() => {

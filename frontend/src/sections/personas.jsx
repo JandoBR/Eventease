@@ -2,18 +2,15 @@
 import { useState, useEffect } from "react";
 
 export default function People({ apiBase, showToast, isActive }) {
-    // --- búsqueda por email ---
     const [searchEmail, setSearchEmail] = useState("");
     const [searchResult, setSearchResult] = useState(null);
     const [searching, setSearching] = useState(false);
     const [sendingRequest, setSendingRequest] = useState(false);
 
-    // --- solicitudes recibidas ---
     const [incoming, setIncoming] = useState([]);
     const [loadingIncoming, setLoadingIncoming] = useState(true);
     const [processingReqId, setProcessingReqId] = useState(null);
 
-    // --- contactos ---
     const [contacts, setContacts] = useState([]);
     const [loadingContacts, setLoadingContacts] = useState(true);
     const [removingContactId, setRemovingContactId] = useState(null);

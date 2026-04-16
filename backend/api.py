@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request, status, FastAPI, Response
 from sqlalchemy.orm import Session
 from typing import List
@@ -5,6 +8,7 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from zoneinfo import ZoneInfo
+from base import seed_demo_data 
 
 from base import (
     get_session,
@@ -76,12 +80,6 @@ from schemas import (
 router = APIRouter(prefix="/api", tags=["events"])
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-
-
-
-
-
-
 def get_current_user(
     request: Request,
     db: Session = Depends(get_session),
@@ -135,7 +133,6 @@ def get_calendar_ics_url(
     if not base_url.endswith("/"):
         base_url += "/"
 
-    # Este router tiene prefix="/api", así que la ruta real es /api/calendar/{token}.ics
     ics_url = f"{base_url}api/calendar/{token}.ics"
 
     return {"ics_url": ics_url}
@@ -444,9 +441,6 @@ def remove_team_member_route(
             detail="Team not found",
         )
 
-    # Solo el owner puede remover a otros.
-    # Un usuario puede removerse a sí mismo (salir del equipo),
-    # pero el owner no puede "salirse": debe borrar el equipo.
     is_owner = current_user.id == team.owner_id
     is_self  = current_user.id == user_id
 
@@ -499,7 +493,6 @@ def get_team_members_route(
         if not user:
             continue
 
-        # 🔹 convertimos el ORM User a SimpleUserOut
         user_out = SimpleUserOut.model_validate(user, from_attributes=True)
 
         results.append(
@@ -604,10 +597,8 @@ def create_friend_request(
             contact_id=data.target_user_id,
         )
     except ValueError as e:
-        # Para casos: "Cannot add yourself as a contact" o "Contact request already exists"
         raise HTTPException(status_code=400, detail=str(e))
 
-    # El frontend solo mira res.ok, pero igual devolvemos algo útil
     return {
         "id": req.id,
         "status": req.status,
@@ -693,7 +684,6 @@ def get_my_events(
                 invitees=[],
             )
 
-        # Si no hay invitación (evento sin invitados), continuamos
         if inv is None or invited_user is None:
             continue
 
@@ -701,7 +691,6 @@ def get_my_events(
         if invited_user.id == ev.owner_id:
             continue
 
-        # Añadir invitado a la lista
         events_out_by_id[ev.id].invitees.append(
             {
                 "name": invited_user.name,
@@ -710,7 +699,6 @@ def get_my_events(
             }
         )
 
-    # dict conserva el orden de inserción, y la query ya viene ordenada por fecha/hora
     return list(events_out_by_id.values())
 
 
@@ -738,7 +726,7 @@ def delete_event_route(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    return  # 204 sin body
+    return 
 
 
 @router.get("/contacts/search", response_model=list[SimpleUserOut])
@@ -822,7 +810,6 @@ def create_event_route(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    # 1) Crear el evento base en la BD
     try:
         ev = create_event_db(
             db=db,
@@ -844,7 +831,6 @@ def create_event_route(
         try:
             inv = invite_user_to_event(db=db, event_id=ev.id, user_id=uid)
         except ValueError:
-            # p.ej. "User already invited to this event" -> ignoramos
             continue
 
 
@@ -856,7 +842,7 @@ def create_event_route(
             {
                 "name": user.name,
                 "email": user.email,
-                "rsvp": inv.status,  # será "pending" al crearse
+                "rsvp": inv.status,  
             }
         )
 
@@ -870,7 +856,6 @@ def create_event_route(
 
         # created_invites son EventInvitation ya recién creadas, status = "pending"
         for inv in created_invites:
-            # opcional: no añadir al owner como invitado
             if inv.user_id == ev.owner_id:
                 continue
 
@@ -882,11 +867,10 @@ def create_event_route(
                 {
                     "name": user.name,
                     "email": user.email,
-                    "rsvp": inv.status,  # "pending"
+                    "rsvp": inv.status, 
                 }
             )
 
-    # 4) Devolver el evento con los invitees embebidos
     return EventOut(
         id=ev.id,
         title=ev.title,
@@ -935,10 +919,8 @@ def invite_user_to_event_route(
             user_id=data.user_id,
         )
     except ValueError as e:
-        # p.ej. "User already invited to this event"
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    # El frontend realmente solo mira res.ok, pero devolvemos algo útil
     return {
         "id": inv.id,
         "event_id": inv.event_id,
@@ -963,14 +945,13 @@ def list_received_friend_requests(
         # c.user_id = quien envió la solicitud
         from_user = db.query(User).filter(User.id == c.user_id).first()
         if not from_user:
-            # si por alguna razón el user no existe, lo saltamos
             continue
 
         results.append(
             IncomingFriendRequestOut(
                 id=c.id,
                 status=c.status,
-                from_user=from_user,  # Pydantic lo convierte a SimpleUserOut
+                from_user=from_user, 
             )
         )
 
@@ -989,14 +970,13 @@ def accept_friend_request_route(
     )
 
     if contact is None or contact.contact_id != current_user.id:
-        # o no existe, o no es para este usuario
         raise HTTPException(status_code=404, detail="Request not found")
 
     try:
         updated = accept_contact_request(
             db=db,
-            user_id=contact.user_id,       # quien envió
-            contact_id=contact.contact_id, # quien recibe (current_user)
+            user_id=contact.user_id, 
+            contact_id=contact.contact_id, 
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1041,11 +1021,10 @@ def list_my_contacts(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    rows = list_contacts(db, current_user.id)  # devuelve Contact con user_id = current_user
+    rows = list_contacts(db, current_user.id)  
     results = []
 
     for c in rows:
-        # el contacto es el usuario en contact_id
         friend = db.query(User).filter(User.id == c.contact_id).first()
         if not friend:
             continue
@@ -1054,7 +1033,7 @@ def list_my_contacts(
             ContactOut(
                 id=c.id,
                 status=c.status,
-                friend=friend,  # Pydantic -> SimpleUserOut
+                friend=friend,
             )
         )
 
@@ -1088,15 +1067,26 @@ def delete_contact_route(
     return
 
 
+@router.on_event("startup")
+def startup_event():
+    try:
+        seed_demo_data()
+        print("Database seeded successfully!")
+    except Exception as e:
+        print(f"Seed skipped or failed: {e}")
 
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
+domain = os.getenv("DOMAIN")
+secret = os.getenv("SECRET_KEY")
 
 origins = [
-    "http://localhost:5173",           # desarrollo local
-    "http://74.208.166.37:22090",      # producción en la VPS
+    domain,
 ]
 app = FastAPI()
 
-app.add_middleware(SessionMiddleware, secret_key="CAMBIA_ESTA_CLAVE_SUPER_SECRETA")
+app.add_middleware(SessionMiddleware, secret_key=secret)
 
 app.add_middleware(
     CORSMiddleware,

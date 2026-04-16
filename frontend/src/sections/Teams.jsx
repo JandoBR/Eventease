@@ -1,7 +1,6 @@
 // ../sections/Teams.jsx
 import { useEffect, useState } from "react";
 
-/* 🧱 Modal de confirmación (similar al de MyEvents) */
 function ConfirmModal({ open, onClose, onConfirm, title, message }) {
     if (!open) return null;
     return (
@@ -278,7 +277,6 @@ export default function Teams({ apiBase, showToast, isActive }) {
         fetchMineTeams({ showSpinner: isInitialLoad });
         fetchContacts({ showSpinner: isInitialLoad });
         fetchTeamInvites({ showSpinner: isInitialLoad });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isActive]);
 
 
@@ -355,14 +353,12 @@ export default function Teams({ apiBase, showToast, isActive }) {
             setCreateInviteSearch("");
             setSelectedContactIds([]);
 
-            // Añadimos a ownedTeams y rawMine (también eres miembro)
             setOwnedTeams(prev => [...prev, team]);
             setRawMine(prev => {
                 const exists = prev.some(t => t.id === team.id);
                 return exists ? prev : [...prev, team];
             });
 
-            // Invitamos contactos seleccionados
             if (selectedContactIds.length > 0) {
                 let okCount = 0;
                 for (const friendId of selectedContactIds) {

@@ -1,10 +1,7 @@
 import { useState, useMemo } from "react";
 
-/* ----------------- helpers de fechas/horas compartidos ----------------- */
-
 const pad = (n) => String(n).padStart(2, "0");
 
-// normaliza date a "YYYY-MM-DD" o devuelve null
 function normalizeDateToISO(date) {
     if (!date) return null;
 
@@ -26,7 +23,6 @@ function normalizeDateToISO(date) {
     return null;
 }
 
-// normaliza hora a "HH:MM" (acepta "HH:MM", "HH:MM:SS" o Date)
 function normalizeTimeToHHMM(t, fallback = "00:00") {
     if (!t) return fallback;
 
@@ -43,7 +39,6 @@ function normalizeTimeToHHMM(t, fallback = "00:00") {
     return fallback;
 }
 
-// calcula fecha/hora de fin: usa endtime si viene; si no, +1h
 function computeEnd(date, time, endtime) {
     const dateIso = normalizeDateToISO(date);
     if (!dateIso) {
@@ -82,7 +77,6 @@ function computeEnd(date, time, endtime) {
     return { endDate: endDateIso, endTime: endTimeStr };
 }
 
-// ahora usamos la hora de fin (real o +1h) para considerar si ya pasó
 function isPast(date, time, endtime) {
     try {
         const { endDate, endTime } = computeEnd(date, time, endtime);
@@ -169,7 +163,6 @@ export default function MyEvents({
         });
     };
 
-    // usar la fecha de fin (real o +1h) para separar próximos/pasados
     const { upcoming, past } = useMemo(() => {
         const up = [], pa = [];
         for (const ev of events) {
@@ -178,7 +171,6 @@ export default function MyEvents({
         return { upcoming: up, past: pa };
     }, [events]);
 
-    // 🔹 Eliminar evento vía API
     async function handleDeleteEvent(eventId) {
         if (!apiBase) {
             console.warn("MyEvents: apiBase no definido, no puedo llamar al backend");
@@ -221,7 +213,6 @@ export default function MyEvents({
                 return `${formatDate(startDateIso)}${range}`;
             }
 
-            // Multi-día (por si algún día lo usas)
             const left = `${formatDate(startDateIso)}${startTimeStr ? ` · ${startTimeStr}` : ""}`;
             const right = endDate ? `${formatDate(endDate)}${endTime ? ` · ${endTime}` : ""}` : "";
             return right ? `${left} → ${right}` : left;

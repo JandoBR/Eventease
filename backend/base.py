@@ -5,6 +5,9 @@ from typing import List
 from contextlib import contextmanager
 import bcrypt
 from secrets import token_urlsafe
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 
 from sqlalchemy import (
     create_engine,
@@ -26,11 +29,14 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # DATABASE CONFIG
 # -----------------------------------------------------------------------
 
-DB_USER = "eventease"
-DB_PASS = "eventease"
-DB_HOST = "localhost"
-DB_PORT = 5432
-DB_NAME = "eventeasedb"
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = (
     f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -95,13 +101,13 @@ class TeamMember(Base):
         Integer,
         ForeignKey("teams.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,  
     )
     user_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True, 
     )
     role = Column(String(50), nullable=False, default="member")
 
@@ -122,7 +128,7 @@ class Event(Base):
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,
     )
 
     title = Column(String(200), nullable=False)
@@ -151,13 +157,13 @@ class EventInvitation(Base):
         Integer,
         ForeignKey("events.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,
     )
     user_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,
     )
 
     status = Column(String(20), nullable=False, default="pending")
@@ -177,13 +183,13 @@ class EventInvitesTeam(Base):
         Integer,
         ForeignKey("events.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,           
     )
     team_id = Column(
         Integer,
         ForeignKey("teams.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,          
     )
 
     status = Column(String(20), nullable=False, default="pending")
@@ -203,13 +209,13 @@ class Contact(Base):
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,        
     )
     contact_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,           # added
+        index=True,        
     )
 
     status = Column(String(20), nullable=False, default="pending")
@@ -228,7 +234,7 @@ def get_session():
     db = SessionLocal()
     try:
         yield db
-        db.commit()       # ⬅️ commit automático al final de la request
+        db.commit()       
     except:
         db.rollback()
         raise
@@ -258,7 +264,7 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 def reset_db():
-    Base.metadata.drop_all(bind=engine)   # borra todas las tablas
+    Base.metadata.drop_all(bind=engine)  
 
 
 
@@ -351,7 +357,6 @@ def generate_ics_for_events(
         except Exception:
             local_tz = timezone.utc
     else:
-        # fallback si el user aún no tiene tz
         local_tz = timezone.utc
 
     # 2) DTSTAMP siempre en UTC
@@ -363,7 +368,6 @@ def generate_ics_for_events(
         "PRODID:-//EventEase//EN",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
-        # hint para algunos clientes
         f"X-WR-TIMEZONE:{timezone_name or 'UTC'}",
     ]
 
@@ -464,10 +468,8 @@ def search_user_teams_by_query(db: Session, user_id: int, query: str) -> list[Te
 
 
 def invite_team_and_members_to_event(db: Session, event_id: int, team_id: int):
-    # 1) Registrar la invitación al equipo (si ya existía lanza ValueError)
     evt_team = invite_team_to_event(db, event_id=event_id, team_id=team_id)
 
-    # 2) Auto-invitar a los miembros (esta función YA evita duplicados por usuario)
     created_invites = auto_invite_team_members(db, event_id=event_id, team_id=team_id)
 
     return evt_team, created_invites
@@ -491,7 +493,7 @@ def create_user(db: Session, name: str, email: str, password: str) -> User:
     )
 
     db.add(user)
-    db.flush()   # get auto-generated id
+    db.flush()  
     db.refresh(user)
 
     return user
@@ -520,7 +522,6 @@ def create_team(db: Session, owner_id: int, name: str, description: str | None =
     if owner is None:
         raise ValueError("Owner user does not exist")
 
-    # Name must be unique per owner
     existing = db.query(Team).filter(
         Team.owner_id == owner_id,
         Team.name == name
@@ -539,11 +540,10 @@ def create_team(db: Session, owner_id: int, name: str, description: str | None =
     db.flush()
     db.refresh(team)
 
-    # 🔹 Auto-add owner as accepted member of the team
     owner_membership = TeamMember(
         team_id=team.id,
         user_id=owner_id,
-        role="owner",      # or "admin" if you prefer
+        role="owner",     
         status="accepted",
     )
     db.add(owner_membership)
@@ -560,7 +560,6 @@ def update_team(db: Session, team_id: int, name: str | None = None, description:
         raise ValueError("Team not found")
 
     if name is not None:
-        # Check for duplicate name
         existing = db.query(Team).filter(
         Team.owner_id == team.owner_id,
         Team.name == name,
@@ -597,7 +596,6 @@ def list_pending_team_invites(db: Session, user_id: int):
 
 
 def invite_user_to_team(db: Session, team_id: int, user_id: int, role: str = "member") -> TeamMember:
-    # Check if membership already exists
     existing = db.query(TeamMember).filter(
         TeamMember.team_id == team_id,
         TeamMember.user_id == user_id
@@ -696,12 +694,10 @@ def create_event(
     endtime: Time | None,
     event_url: str | None = None,   
 ) -> Event:
-    # Ensure owner exists
     owner = db.query(User).filter(User.id == owner_id).first()
     if owner is None:
         raise ValueError("Owner user does not exist")
 
-    # Si no nos pasan un event_url, lo generamos aquí
     if event_url is None:
         event_url = _generate_event_url()
 
@@ -792,7 +788,6 @@ def get_event_url(db: Session, event_id: int) -> str | None:
 # -----------------------------------------------------------------------
 
 def invite_user_to_event(db: Session, event_id: int, user_id: int) -> EventInvitation:
-    # Prevent duplicates
     existing = db.query(EventInvitation).filter(
         EventInvitation.event_id == event_id,
         EventInvitation.user_id == user_id
@@ -952,7 +947,6 @@ def auto_invite_team_members(
                 user_id=m.user_id,
             )
         except ValueError:
-            # ya estaba invitado, etc.
             continue
 
         created.append(inv)
@@ -968,7 +962,6 @@ def send_contact_request(db: Session, user_id: int, contact_id: int) -> Contact:
     if user_id == contact_id:
         raise ValueError("Cannot add yourself as a contact")
 
-    # ¿Ya existe relación en cualquier dirección?
     existing = db.query(Contact).filter(
         or_(
             and_(Contact.user_id == user_id, Contact.contact_id == contact_id),
@@ -1002,10 +995,8 @@ def accept_contact_request(db: Session, user_id: int, contact_id: int) -> Contac
     if request is None:
         raise ValueError("No pending request found")
 
-    # Marcamos como aceptada
     request.status = "accepted"
 
-    # Creamos la relación inversa aceptada si no existe
     reverse = db.query(Contact).filter(
         Contact.user_id == contact_id,
         Contact.contact_id == user_id,
