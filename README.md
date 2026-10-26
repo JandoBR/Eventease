@@ -1,27 +1,42 @@
 # EventEase 📅
 
-[EventEase](https://eventease.pixxula.uk) es una plataforma web diseñada para simplificar la organización y gestión de eventos de manera colaborativa y eficiente.
+A web platform for planning events collaboratively: create an event, invite people,
+manage teams, track who is coming, and keep it all on one calendar.
 
-[![EventEase Dashboard](https://github.com/user-attachments/assets/59593a68-800d-4c4c-b292-01f813c4ad19)](https://eventease.pixxula.uk)
+![EventEase walkthrough](assets/demo.gif)
 
-## 🚀 Características Principales
+## Features
 
-- **Gestión de Eventos:** Crea y organiza tus eventos de forma intuitiva.
-- **Invitaciones Dinámicas:** Envía invitaciones directamente a otros usuarios de la plataforma.
-- **Confirmación en Tiempo Real:** Recibe y gestiona las confirmaciones de asistencia de tus invitados.
-- **Gestión de Grupos:** Organiza a tus contactos en grupos. Al invitar a un grupo, se envía una invitación automática a todos los miembros.
-- **Sincronización con Google Calendar:** Genera un enlace de suscripción en formato `.ics` para sincronizar tus eventos con Google Calendar u otras aplicaciones.
+- **Events:** create and organise them, with date, place and visibility.
+- **Invitations:** send them to other users, accept or decline, see status in real time.
+- **Teams:** group people once and invite the whole team to an event.
+- **Contacts:** friend requests and a people directory.
+- **Calendar:** a combined view of everything you are invited to or hosting.
+- **Auth:** email and password, sessions signed server-side.
 
-## 🛠️ Acceso Demo
+## Stack
 
-Puedes probar las funcionalidades en [eventease.pixxula.uk](https://eventease.pixxula.uk) con la cuenta de prueba:
+- **Frontend:** React 19, React Router 7, Vite. Plain CSS, no UI framework.
+- **Backend:** Python 3.11, FastAPI, SQLAlchemy, PostgreSQL.
+- **Deploy:** Docker Compose (Postgres + API), frontend served by Vite or a static host.
 
-* **Usuario:** `demo@example.com`
-* **Contraseña:** `demo1234`
+## Run it locally
 
-## 📅 Cómo sincronizar tu calendario
+```bash
+cp .env.example .env          # database credentials, DOMAIN and SECRET_KEY
+docker compose up -d db backend
 
-Para ver tus eventos en Google Calendar:
-1. Copia el enlace `.ics` generado en la plataforma.
-2. En Google Calendar, ve a "Otros calendarios" (+) y selecciona **"Desde URL"**.
-3. Pega el enlace y tus eventos aparecerán automáticamente.
+cd frontend
+npm install
+npm run dev                   # http://localhost:5173, /api proxied to :25000
+```
+
+The API creates its tables and a demo dataset on first start, so the app is not empty.
+
+## Layout
+
+```
+backend/     FastAPI app: routers, models, schemas
+frontend/    React app: pages, sections, shared components
+compose.yml  Postgres + API
+```

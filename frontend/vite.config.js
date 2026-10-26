@@ -8,5 +8,8 @@ export default defineConfig({
     allowedHosts: [
       'eventease.pixxula.uk'
     ],
+    proxy: {
+      '/api': 'http://localhost:25000',
+    },
   }
 })
